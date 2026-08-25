@@ -1,0 +1,355 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IslandCore • Player</title>
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="logo">Island<span>Core</span></div>
+  <nav><a class="active" href="index.html">Dashboard</a><a href="players.html">Players</a><a href="chat.html">Chat</a><a href="trades.html">Trades</a></nav>
+  <div class="right"><span class="dot"></span>Live · <a href="#" data-logout>Logout</a></div>
+</header>
+
+<main class="wrap player-tree-page">
+  <div class="player-page-head">
+    <div>
+      <div class="muted small">Player</div>
+      <h1 id="playerName">Loading…</h1>
+      <div class="muted small" id="playerUuid">—</div>
+    </div>
+    <a class="btn" href="index.html">Back</a>
+  </div>
+
+  <section class="card">
+    <h2>Player information</h2>
+    <div class="player-info-grid">
+      <div class="info-row"><span class="muted">Rank</span><b id="rank">—</b></div>
+      <div class="info-row"><span class="muted">Ranks</span><b id="ranks">—</b></div>
+      <div class="info-row"><span class="muted">Visitable</span><b id="visitable">—</b></div>
+      <div class="info-row"><span class="muted">Visit setting</span><b id="visitSetting">—</b></div>
+      <div class="info-row"><span class="muted">Message setting</span><b id="msgSetting">—</b></div>
+      <div class="info-row"><span class="muted">Friend requests</span><b id="friendRequestSetting">—</b></div>
+      <div class="info-row"><span class="muted">Loot pulls</span><b id="lootPulls">—</b></div>
+      <div class="info-row"><span class="muted">Level</span><b id="level">—</b></div>
+      <div class="info-row"><span class="muted">Playtime</span><b id="playtime">—</b></div>
+    </div>
+  </section>
+
+  <section class="player-tree-section">
+    <div class="player-tree-subtitle" id="treeTitle">Player's tree</div>
+    <div class="mc-gui-wrap">
+      <div class="mc-gui" id="mainTreeGui" aria-label="Progression Tree"></div>
+    </div>
+  </section>
+
+  <section class="player-tree-section">
+    <div class="player-tree-subtitle" id="biomeTitle">Player's biomes</div>
+    <div class="mc-gui-wrap">
+      <div class="mc-gui" id="biomeGui" aria-label="Biomes"></div>
+    </div>
+  </section>
+
+  <section class="player-tree-section">
+    <div class="player-tree-subtitle" id="enchantTitle">Player's enchanting</div>
+    <div class="mc-gui-wrap">
+      <div class="mc-gui" id="enchantGui" aria-label="Enchanting"></div>
+    </div>
+  </section>
+</main>
+
+<div id="mcTooltip" class="mc-tooltip" role="tooltip" aria-hidden="true"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+let player=null;
+let treeData=null;
+
+const MC_COLORS={
+  '0':'#000000','1':'#0000aa','2':'#00aa00','3':'#00aaaa','4':'#aa0000','5':'#aa00aa','6':'#ffaa00','7':'#aaaaaa',
+  '8':'#555555','9':'#5555ff','a':'#55ff55','b':'#55ffff','c':'#ff5555','d':'#ff55ff','e':'#ffff55','f':'#ffffff'
+};
+const CUSTOM_COLORS={
+  'BRONZE':'#CD7F32','SILVER':'#C0C0C0','GOLD':'#FFD700'
+};
+
+function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function prettyMaterial(material){
+  return String(material||'UNKNOWN').toLowerCase().split('_').map(x=>x.charAt(0).toUpperCase()+x.slice(1)).join(' ');
+}
+const MC_ASSET_BASE='https://mcasset.cloud/1.21.1/assets/minecraft/textures/';
+const MC_RAW_ASSET_BASE='https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.21.1/assets/minecraft/textures/';
+const MC_TEXTURE_OVERRIDES={
+  DRAGON_HEAD:['block/dragon_head.png','entity/enderdragon/dragon.png','item/dragon_head.png'],
+  PITCHER_PLANT:['item/pitcher_plant.png','block/pitcher_plant_top.png','block/pitcher_plant_bottom.png'],
+  ENCHANTING_TABLE:['block/enchanting_table_side.png','block/enchanting_table_top.png','block/enchanting_table_bottom.png','item/enchanting_table.png'],
+  BREWING_STAND:['item/brewing_stand.png','block/brewing_stand.png','entity/brewingstand.png'],
+  CHEST:['block/chest_front.png','block/chest_side.png','item/chest.png'],
+  CRAFTING_TABLE:['block/crafting_table_front.png','block/crafting_table_side.png','block/crafting_table_top.png','item/crafting_table.png'],
+  SUNFLOWER:['block/sunflower.png'],
+  POPPY:['block/poppy.png']
+};
+const MC_BLOCK_TEXTURES=new Set([
+  'GRASS_BLOCK','END_STONE','NETHERRACK','ANCIENT_DEBRIS','POPPY','OAK_WOOD','BIRCH_WOOD','DARK_OAK_WOOD','SPRUCE_WOOD','JUNGLE_WOOD',
+  'ACACIA_WOOD','MANGROVE_WOOD','CHERRY_WOOD','CRIMSON_HYPHAE','WARPED_HYPHAE','BASALT','ORANGE_CONCRETE','BEDROCK','SUNFLOWER'
+]);
+function textureCandidates(material){
+  const key=String(material||'BEDROCK').toUpperCase();
+  const m=key.toLowerCase();
+  const paths=MC_TEXTURE_OVERRIDES[key]||[(MC_BLOCK_TEXTURES.has(key)?'block/':'item/')+m+'.png', (MC_BLOCK_TEXTURES.has(key)?'item/':'block/')+m+'.png'];
+  const out=[];
+  for(const path of paths){
+    out.push(MC_ASSET_BASE+path);
+    out.push(MC_RAW_ASSET_BASE+path);
+  }
+  return [...new Set(out)];
+}
+function materialUrl(material){ return textureCandidates(material)[0]; }
+function materialFallbackUrl(material){ return textureCandidates(material)[1]||textureCandidates(material)[0]; }
+function mcText(raw){
+  let s=String(raw??'');
+  let out='';
+  let color='#ffffff';
+  let bold=false,italic=false,underline=false,strike=false,obfuscated=false;
+  let i=0;
+  while(i<s.length){
+    if(s[i]==='§' && i+1<s.length){
+      const c=s[++i].toLowerCase();
+      if(c==='x' && i+12<s.length){
+        const hex=s.slice(i+1,i+13).split('§').join('');
+        if(/^[0-9a-f]{6}$/i.test(hex)){ color='#'+hex; i+=12; continue; }
+      }
+      if(MC_COLORS[c]) color=MC_COLORS[c];
+      else if(c==='l') bold=true;
+      else if(c==='o') italic=true;
+      else if(c==='n') underline=true;
+      else if(c==='m') strike=true;
+      else if(c==='k') obfuscated=true;
+      else if(c==='r'){color='#ffffff';bold=false;italic=false;underline=false;strike=false;obfuscated=false;}
+      i++; continue;
+    }
+    let ch=s[i++];
+    if(obfuscated && ch!==' ') ch='█';
+    const styles=[`color:${color}`];
+    if(bold) styles.push('font-weight:700');
+    if(italic) styles.push('font-style:italic');
+    if(underline) styles.push('text-decoration:underline');
+    if(strike) styles.push('text-decoration:line-through');
+    out+='<span style="'+styles.join(';')+'">'+esc(ch)+'</span>';
+  }
+  return out;
+}
+
+function formatPlaytime(seconds){
+  seconds=Math.max(0,Number(seconds)||0);
+  const days=Math.floor(seconds/86400); seconds%=86400;
+  const hours=Math.floor(seconds/3600); seconds%=3600;
+  const minutes=Math.floor(seconds/60); seconds%=60;
+  const parts=[];
+  if(days) parts.push(days+'d');
+  if(hours) parts.push(hours+'h');
+  if(minutes) parts.push(minutes+'m');
+  if(seconds || !parts.length) parts.push(seconds+'s');
+  return parts.join(' ');
+}
+
+function createSlot(slotIndex, content, extraClass=''){
+  const el=document.createElement('div');
+  el.className='mc-slot '+extraClass;
+  el.dataset.slot=slotIndex;
+  if(content) el.innerHTML=content;
+  return el;
+}
+function fillerSlot(i){
+  return createSlot(i,'','mc-filler');
+}
+function itemHtml(material, amount=0, glint=false){
+  const candidates=textureCandidates(material);
+  const attrs=esc(JSON.stringify(candidates));
+  return `<div class="mc-item ${glint?'mc-glint':''}"><img src="${candidates[0]}" alt="${esc(prettyMaterial(material))}" loading="eager" decoding="async" data-textures='${attrs}' data-texture-index="0" onerror="advanceTexture(this)">${amount>1?`<span class="mc-stack">${amount}</span>`:''}</div>`;
+}
+function advanceTexture(img){
+  let candidates=[];
+  try{candidates=JSON.parse(img.dataset.textures||'[]');}catch(_){}
+  let index=Number(img.dataset.textureIndex||0)+1;
+  if(index<candidates.length){
+    img.dataset.textureIndex=String(index);
+    img.src=candidates[index];
+  }else{
+    img.removeAttribute('onerror');
+    img.style.visibility='hidden';
+  }
+}
+function stripMcColors(s){return String(s||'').replace(/§x(?:§[0-9a-fA-F]){6}/g,'').replace(/§[0-9a-fk-or]/gi,'');}
+
+function tooltipForNode(node){
+  const lines=[];
+  node.description.forEach(x=>lines.push({html:mcText(x),class:''}));
+  lines.push({html:'',class:'gap'});
+  if(node.active){
+    lines.push({html:'<span class="mc-green-bold">ACTIVE</span>',class:''});
+    if(player) lines.push({html:`<span class="mc-gray">Your level: </span><span class="mc-green">${Number(player.level||1).toLocaleString()}</span>`,class:''});
+    lines.push({html:'<span class="mc-purple">Right-click to view drops</span>',class:''});
+  }else if(node.unlocked){
+    lines.push({html:'<span class="mc-yellow">Click to select</span>',class:''});
+    lines.push({html:'<span class="mc-purple">Right-click to view drops</span>',class:''});
+  }else{
+    if(node.requirements?.length){
+      lines.push({html:'<span class="mc-red-bold">REQUIRES:</span>',class:''});
+      node.requirements.forEach(req=>{
+        const label=findNodeName(req);
+        lines.push({html:`<span class="mc-gray">• </span><span class="mc-red">${esc(label)}</span>`,class:''});
+      });
+      lines.push({html:'',class:'gap'});
+    }
+    lines.push({html:'<span class="mc-red-bold">LOCKED</span>',class:''});
+    if(node.tokenCost>0) lines.push({html:`<span class="mc-gray">Tokens: </span><span class="mc-gold">${Number(node.tokenCost).toLocaleString()}</span>`,class:''});
+    (node.itemCosts||[]).forEach(c=>lines.push({html:`<span class="mc-gray">• </span><span class="mc-white">${c.amount}x ${esc(prettyMaterial(c.material))}</span>`,class:''}));
+    lines.push({html:node.requirements?.length?' <span class="mc-gray">Unlock prerequisites first</span>':'<span class="mc-yellow">Click to unlock</span>',class:''});
+  }
+  return {title:node.unlocked||node.active?node.displayName:'§7§l'+stripMcColors(node.displayName),lines};
+}
+function tooltipForBiome(node){
+  const lines=[
+    {html:`<span class="mc-gray">${esc(node.biomeType==='NETHER'?'Nether':'Forest')} biome</span>`,class:''},
+    {html:'<span class="mc-gray">Wood/building family changes with selection.</span>',class:''},
+    {html:'',class:'gap'}
+  ];
+  if(node.active) lines.push({html:'<span class="mc-green-bold">SELECTED</span>',class:''});
+  else if(node.unlocked) lines.push({html:'<span class="mc-yellow">Click to select</span>',class:''});
+  else{
+    if(node.requirements?.length){
+      lines.push({html:'<span class="mc-red-bold">REQUIRES:</span>',class:''});
+      node.requirements.forEach(req=>lines.push({html:`<span class="mc-gray">• </span><span class="mc-red">${esc(findBiomeName(req))}</span>`,class:''}));
+      lines.push({html:'',class:'gap'});
+    }
+    lines.push({html:'<span class="mc-red-bold">LOCKED</span>',class:''});
+    if(node.tokenCost>0) lines.push({html:`<span class="mc-gray">Tokens: </span><span class="mc-gold">${Number(node.tokenCost).toLocaleString()}</span>`,class:''});
+    (node.itemCosts||[]).forEach(c=>lines.push({html:`<span class="mc-gray">• </span><span class="mc-white">${c.amount}x ${esc(prettyMaterial(c.material))}</span>`,class:''}));
+    lines.push({html:node.requirements?.length?'<span class="mc-gray">Unlock prerequisites first</span>':'<span class="mc-yellow">Click to unlock</span>',class:''});
+  }
+  return {title:node.active?'§a§l'+stripMcColors(node.displayName):node.unlocked?node.displayName:'§7§l'+stripMcColors(node.displayName),lines};
+}
+function findNodeName(id){
+  const n=[...(treeData?.mainNodes||[]),...(treeData?.enchantingNodes||[])].find(x=>x.id===id);
+  return n ? stripNodeName(n.displayName) : id;
+}
+function findBiomeName(id){
+  const n=(treeData?.biomeNodes||[]).find(x=>x.id===id);
+  return n ? stripNodeName(n.displayName) : id;
+}
+function stripNodeName(s){return String(s||'').replace(/^\s*§[0-9a-fk-or]\[[^\]]*\]\s*/i,'').replace(/^\s*\[[^\]]*\]\s*/,'').replace(/§[0-9a-fk-or]/gi,'').trim();}
+
+function attachTooltip(slot, data){
+  slot.addEventListener('mouseenter',()=>showTooltip(slot,data));
+  slot.addEventListener('mousemove',positionTooltip);
+  slot.addEventListener('mouseleave',hideTooltip);
+}
+function showTooltip(slot,data){
+  const tip=$('mcTooltip');
+  tip.innerHTML='<div class="mc-tooltip-title">'+mcText(data.title)+'</div>'+data.lines.map(x=>x.class==='gap'?'<div class="mc-tooltip-gap"></div>':'<div class="mc-tooltip-line">'+x.html+'</div>').join('');
+  tip.classList.add('visible'); tip.setAttribute('aria-hidden','false');
+  positionTooltip({clientX:slot.getBoundingClientRect().right+10,clientY:slot.getBoundingClientRect().top});
+}
+function positionTooltip(e){
+  const tip=$('mcTooltip');
+  if(!tip.classList.contains('visible'))return;
+  const pad=12, rect=tip.getBoundingClientRect();
+  let x=e.clientX+14,y=e.clientY+12;
+  if(x+rect.width>window.innerWidth-pad)x=e.clientX-rect.width-14;
+  if(y+rect.height>window.innerHeight-pad)y=window.innerHeight-rect.height-pad;
+  if(y<pad)y=pad;
+  tip.style.left=x+'px';tip.style.top=y+'px';
+}
+function hideTooltip(){const tip=$('mcTooltip');tip.classList.remove('visible');tip.setAttribute('aria-hidden','true')}
+
+function setSlot(slots,index,html,tooltip,active=false,locked=false){
+  const slot=createSlot(index,html,(active?'mc-active ':'')+(locked?'mc-locked ':''));
+  slots[index]=slot;
+  if(tooltip)attachTooltip(slot,tooltip);
+}
+
+function tokenItem(){
+  return {title:'§6§lTree Tokens',lines:[
+    {html:`<span class="mc-gray">Balance: </span><span class="mc-gold">${Number(treeData.tokens).toLocaleString()}</span>`,class:''},
+    {html:'<span class="mc-gray">Used to unlock skill tree nodes.</span>',class:''}
+  ]};
+}
+
+function renderChest(containerId,type){
+  const container=$(containerId); container.innerHTML='';
+  const slots=new Array(type==='enchanting'?27:54);
+  for(let i=0;i<slots.length;i++)slots[i]=fillerSlot(i);
+
+  if(type==='main'){
+    setSlot(slots,0,itemHtml('CRAFTING_TABLE'),{title:'§fBack',lines:[{html:'<span class="mc-gray">Close the skill tree</span>',class:''}]});
+    setSlot(slots,4,itemHtml('SUNFLOWER'),tokenItem());
+    const biomeUnlocked=treeData.unlockedNodes.includes('biome');
+    const biome={title:biomeUnlocked?'§aBiome':'§c§lBiome Locked',lines:[{html:biomeUnlocked?'<span class="mc-gray">Open the biome tab</span>':'<span class="mc-gray">Unlock the </span><span class="mc-yellow">Biome</span><span class="mc-gray"> category first.</span>',class:''}]};
+    setSlot(slots,8,itemHtml(biomeUnlocked?'OAK_SAPLING':'BEDROCK'),biome,false,!biomeUnlocked);
+    setSlot(slots,50,itemHtml('ENCHANTING_TABLE'),{title:'§dEnchanting',lines:[{html:'<span class="mc-gray">Open enchanting and brewing</span>',class:''}]});
+    (treeData.mainNodes||[]).forEach(n=>{
+      const material=n.unlocked?n.material:'BEDROCK';
+      const tt=tooltipForNode(n);
+      setSlot(slots,n.slot,itemHtml(material,0,n.active),tt,n.active,!n.unlocked);
+    });
+  }else if(type==='biome'){
+    setSlot(slots,0,itemHtml('CHEST'),{title:'§fBack',lines:[{html:'<span class="mc-gray">Return to the Progression Tree</span>',class:''}]});
+    setSlot(slots,4,itemHtml('SUNFLOWER'),tokenItem());
+    setSlot(slots,8,itemHtml('OAK_SAPLING',0,true),{title:'§a§lBiome',lines:[{html:'<span class="mc-gray">Currently viewing biomes</span>',class:''}]},true);
+    (treeData.biomeNodes||[]).forEach(n=>{
+      setSlot(slots,n.slot,itemHtml(n.unlocked?n.material:'BEDROCK',0,n.active),tooltipForBiome(n),n.active,!n.unlocked);
+    });
+  }else{
+    setSlot(slots,0,itemHtml('ENCHANTING_TABLE',0,true),{title:'§d§lEnchanting',lines:[{html:'<span class="mc-gray">Currently viewing enchanting & brewing</span>',class:''}]},true);
+    setSlot(slots,4,itemHtml('SUNFLOWER'),tokenItem());
+    setSlot(slots,9,itemHtml('CHEST'),{title:'§fBack',lines:[{html:'<span class="mc-gray">Return to the Progression Tree</span>',class:''}]});
+    (treeData.enchantingNodes||[]).forEach(n=>{
+      setSlot(slots,n.slot,itemHtml(n.unlocked?n.material:'BEDROCK',0,n.active),tooltipForNode(n),n.active,!n.unlocked);
+    });
+  }
+  slots.forEach(s=>container.appendChild(s));
+}
+
+async function loadPlayer(){
+  const uuid=new URLSearchParams(location.search).get('uuid');
+  if(!uuid){$('playerName').textContent='Player not found';$('playerUuid').textContent='No player ID was provided.';return;}
+  try{
+    const r=await DashboardAPI.request('/api/players/'+encodeURIComponent(uuid));
+    if(!r.ok){$('playerName').textContent='Player not found';$('playerUuid').textContent=uuid;return;}
+    player=await r.json();
+    $('playerName').textContent=player.name;
+    $('playerUuid').textContent=player.uuid;
+    $('treeTitle').textContent=player.name+"'s tree";
+    $('biomeTitle').textContent=player.name+"'s biomes";
+    $('enchantTitle').textContent=player.name+"'s enchanting";
+    $('rank').textContent=player.rank;
+    $('ranks').textContent=player.ranks.length?player.ranks.join(', '):'None';
+    $('visitable').textContent=player.visitable?'Yes':'No';
+    $('visitSetting').textContent=player.visitSetting;
+    $('msgSetting').textContent=player.msgSetting;
+    $('friendRequestSetting').textContent=player.friendRequestSetting;
+    $('lootPulls').textContent=Number(player.lootPulls||0).toLocaleString();
+    $('level').textContent=Number(player.level||1).toLocaleString();
+    $('playtime').textContent=formatPlaytime(player.playtimeSeconds);
+
+    const tr=await DashboardAPI.request('/api/players/'+encodeURIComponent(uuid)+'/skilltree');
+    if(!tr.ok)throw new Error('Unable to load skill tree');
+    treeData=await tr.json();
+    renderChest('mainTreeGui','main');
+    renderChest('biomeGui','biome');
+    renderChest('enchantGui','enchanting');
+  }catch(e){
+    console.error(e);
+    $('playerName').textContent='Unable to load player';
+    $('playerUuid').textContent='The dashboard API could not be reached.';
+  }
+}
+loadPlayer();
+</script>
+</body>
+</html>

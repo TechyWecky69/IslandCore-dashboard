@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IslandCore • Players</title>
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="logo">Island<span>Core</span></div>
+  <nav><a href="index.html">Dashboard</a><a class="active" href="players.html">Players</a><a href="chat.html">Chat</a><a href="trades.html">Trades</a></nav>
+  <div class="right"><span class="dot"></span>Live · <a href="#" data-logout>Logout</a></div>
+</header>
+
+<main class="wrap">
+  <div class="players-page-head">
+    <div>
+      <div class="muted small">IslandCore</div>
+      <h1>Players</h1>
+      <div class="muted small" id="playersSummary">Loading players…</div>
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="player-search-wrap players-page-search">
+      <input id="allPlayerSearch" class="player-search" type="search" placeholder="Search players..." autocomplete="off">
+    </div>
+    <div class="all-players-list" id="allPlayers">
+      <span class="muted">Loading players…</span>
+    </div>
+  </section>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+let allPlayers=[];
+let onlinePlayers=new Set();
+let lastLoaded=0;
+
+function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+
+function renderPlayers(){
+  const query=String($('allPlayerSearch').value||'').trim().toLowerCase();
+  const filtered=allPlayers.filter(p=>String(p.name||'').toLowerCase().includes(query));
+  $('playersSummary').textContent=allPlayers.length+' player'+(allPlayers.length===1?'':'s')+' have joined';
+  $('allPlayers').innerHTML=filtered.length
+    ? filtered.map(p=>`<button type="button" class="all-player-row" data-player-uuid="${esc(p.uuid)}">
+        <span class="all-player-name">${esc(p.name)}</span>
+        <span class="all-player-status ${onlinePlayers.has(String(p.uuid).toLowerCase())?'online':''}">${onlinePlayers.has(String(p.uuid).toLowerCase())?'Online':'Offline'}</span>
+      </button>`).join('')
+    : `<div class="muted all-players-empty">${query?'No players match your search.':'No players have joined yet.'}</div>`;
+}
+
+async function loadPlayers(){
+  try{
+    const [allResponse,onlineResponse]=await Promise.all([
+      DashboardAPI.request('/api/players'),
+      DashboardAPI.request('/api/online-players')
+    ]);
+    if(allResponse.ok) allPlayers=await allResponse.json();
+    if(onlineResponse.ok){
+      const online=await onlineResponse.json();
+      onlinePlayers=new Set(online.map(p=>String(p.uuid).toLowerCase()));
+    }
+    lastLoaded=Date.now();
+    renderPlayers();
+  }catch(e){
+    console.error(e);
+    $('allPlayers').innerHTML='<span class="muted">Could not load players.</span>';
+  }
+}
+
+$('allPlayerSearch').addEventListener('input',renderPlayers);
+$('allPlayers').addEventListener('click',e=>{
+  const button=e.target.closest('[data-player-uuid]');
+  if(button) location.href='player.html?uuid='+encodeURIComponent(button.dataset.playerUuid);
+});
+
+loadPlayers();
+setInterval(loadPlayers,5000);
+</script>
+</body>
+</html>
